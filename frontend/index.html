@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cloud Computing LMS | ITEP413-T (Elective 4)</title>
+  <meta name="description" content="Production-Ready Learning Management System for Cloud Computing Elective 4 (ITEP413-T), 4th Year, 1st Term.">
+  
+  <!-- Modern Inter Font & JetBrains Mono for Code/Diagrams -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="lms-app-layout">
+    <!-- Top Course Global Navigation Header -->
+    <header class="lms-header">
+      <div class="header-left">
+        <div class="header-brand-icon">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
+          </svg>
+        </div>
+        <div class="header-course-info">
+          <div class="course-title-row">
+            <h1 class="course-title" id="courseTitle">Cloud Computing (Elective 4)</h1>
+            <span class="course-code-pill" id="courseCode">ITEP413-T</span>
+          </div>
+          <div class="course-meta-row" id="courseMetadata">
+            <span class="meta-pill">Term: 1st Term</span>
+            <span class="meta-pill">Level: 4th Year (4-1)</span>
+            <span class="meta-pill">Elective: Professional Elective 4</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-center">
+        <!-- Student Overall Progress Bar (Hidden for Faculty or Logged Out) -->
+        <div class="student-overall-progress" id="studentProgressContainer" style="display: none;">
+          <div class="progress-info-row">
+            <span class="progress-lbl">Course Progress</span>
+            <span class="progress-count" id="studentProgressText">0/12 Chapters (0%)</span>
+          </div>
+          <div class="progress-bar-shell">
+            <div class="progress-bar-value" id="studentProgressBar" style="width: 0%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-right" id="userMenu">
+        <!-- Rendered by app.js: Guest actions or Logged in profile badge -->
+        <div class="user-guest-menu">
+          <button class="btn btn-secondary btn-sm" id="btnQuickDemo">🚀 Demo Switcher</button>
+          <button class="btn btn-primary btn-sm" id="btnLoginOpen">Log In / Register</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- App Body: Sidebar + Main Content Area -->
+    <div class="lms-body-container">
+      <!-- Dynamic Sidebar Navigation (Table of Contents) -->
+      <aside class="lms-sidebar">
+        <div class="sidebar-header">
+          <span class="sidebar-title">Course Curriculum</span>
+          <span class="sidebar-badge">12 Chapters</span>
+        </div>
+
+        <div class="sidebar-scrollable-toc" id="sidebarChapters">
+          <!-- Populated dynamically by app.js (Module 1, 2, 3, 4 with sequential unlocking) -->
+          <div class="loading-spinner">Loading curriculum outline...</div>
+        </div>
+      </aside>
+
+      <!-- Main Workspace -->
+      <main class="lms-workspace">
+        <!-- Workspace Tabs Bar -->
+        <nav class="workspace-tabs-bar" id="workspaceTabs">
+          <!-- Dynamically populated: Slides, Summary, Quiz, Gradebook, Faculty Tools -->
+        </nav>
+
+        <!-- Workspace Active Tab Content Viewport -->
+        <section class="workspace-content-pane" id="workspaceContent">
+          <!-- Injected dynamically based on active tab -->
+          <div class="loading-spinner">Loading chapter materials...</div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Global Authentication Modal (Sign In / Register / Demo Switcher) -->
+  <div class="modal-backdrop" id="authModal">
+    <div class="modal-card modal-md">
+      <!-- Content injected by app.js -->
+    </div>
+  </div>
+
+  <!-- Load JavaScript Modules -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
+
