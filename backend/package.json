@@ -6,6 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
+    "migrate-json-to-mysql": "node migrate_json_to_mysql.js",
     "reset-passwords": "node reset_passwords.js"
   },
   "keywords": [],

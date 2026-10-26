@@ -1,861 +1,449 @@
-const fs = require("fs");
-const path = require("path");
 const mysql = require("mysql2/promise");
 const curriculum = require("../data/curriculumData");
 
-const STORE_PATH = path.join(__dirname, "../data/lms-db.json");
-
-let isMySQLActive = false;
 let pool = null;
-let memoryStore = null;
 
-// Initialize or load the JSON store
-function initMemoryStore() {
-  if (fs.existsSync(STORE_PATH)) {
-    try {
-      const raw = fs.readFileSync(STORE_PATH, "utf8");
-      memoryStore = JSON.parse(raw);
-      console.log("[DB] Loaded existing persistent data store from", STORE_PATH);
-      return;
-    } catch (e) {
-      console.warn("[DB] Could not parse existing store, re-seeding...", e.message);
-    }
-  }
-
-  // Build clean fresh store from curriculumData
-  const users = curriculum.defaultUsers.map((u, idx) => ({
-    user_id: idx + 1,
-    ...u,
-    created_at: new Date().toISOString()
-  }));
-
-  const course = {
-    course_id: 1,
-    ...curriculum.courseData,
-    created_at: new Date().toISOString()
-  };
-
-  const chapters = [];
-  const quizzes = [];
-  const quiz_questions = [];
-  let questionCounter = 1;
-
-  curriculum.chapters.forEach((ch, chIdx) => {
-    const chapterId = chIdx + 1;
-    chapters.push({
-      chapter_id: chapterId,
-      course_id: 1,
-      chapter_number: ch.chapter_number,
-      module_title: ch.module_title,
-      chapter_title: ch.chapter_title,
-      objectives: ch.objectives,
-      summary_text: ch.summary_text,
-      presentation_url: null,
-      slides: ch.slides,
-      created_at: new Date().toISOString()
-    });
-
-    const quizId = chapterId;
-    quizzes.push({
-      quiz_id: quizId,
-      chapter_id: chapterId,
-      title: ch.quiz.title,
-      time_limit_minutes: ch.quiz.time_limit_minutes || 10,
-      passing_percentage: ch.quiz.passing_percentage || 75.0,
-      total_questions: ch.quiz.questions.length,
-      created_at: new Date().toISOString()
-    });
-
-    ch.quiz.questions.forEach((q) => {
-      quiz_questions.push({
-        question_id: questionCounter++,
-        quiz_id: quizId,
-        question_text: q.question_text,
-        option_a: q.option_a,
-        option_b: q.option_b,
-        option_c: q.option_c,
-        option_d: q.option_d,
-        correct_option: q.correct_option,
-        explanation: q.explanation || "",
-        created_at: new Date().toISOString()
-      });
-    });
-  });
-
-  // Seed sample student progress and attempts for realistic gradebook demo
-  const student_progress = [];
-  const quiz_attempts = [];
-  let attemptCounter = 1;
-
-  // Student 1 (Juan Dela Cruz): passed Ch 1 (18/20 = 90%)
-  student_progress.push({
-    progress_id: 1,
-    student_id: 2, // student1
-    chapter_id: 1,
-    is_unlocked: 1,
-    is_completed: 1,
-    highest_score: 90.0,
-    unlocked_at: new Date(Date.now() - 86400000 * 2).toISOString(),
-    completed_at: new Date(Date.now() - 86400000).toISOString()
-  });
-  student_progress.push({
-    progress_id: 2,
-    student_id: 2,
-    chapter_id: 2,
-    is_unlocked: 1, // unlocked because ch 1 passed!
-    is_completed: 0,
-    highest_score: 0.0,
-    unlocked_at: new Date(Date.now() - 86400000).toISOString(),
-    completed_at: null
-  });
-  quiz_attempts.push({
-    attempt_id: attemptCounter++,
-    quiz_id: 1,
-    student_id: 2,
-    score: 18,
-    total_questions: 20,
-    percentage: 90.0,
-    passed: 1,
-    time_taken_seconds: 412,
-    attempted_at: new Date(Date.now() - 86400000).toISOString()
-  });
-
-  // Student 2 (Maria Santos): passed Ch 1 (20/20 = 100%), passed Ch 2 (17/20 = 85%)
-  student_progress.push({
-    progress_id: 3,
-    student_id: 3, // student2
-    chapter_id: 1,
-    is_unlocked: 1,
-    is_completed: 1,
-    highest_score: 100.0,
-    unlocked_at: new Date(Date.now() - 86400000 * 3).toISOString(),
-    completed_at: new Date(Date.now() - 86400000 * 2).toISOString()
-  });
-  student_progress.push({
-    progress_id: 4,
-    student_id: 3,
-    chapter_id: 2,
-    is_unlocked: 1,
-    is_completed: 1,
-    highest_score: 85.0,
-    unlocked_at: new Date(Date.now() - 86400000 * 2).toISOString(),
-    completed_at: new Date(Date.now() - 86400000).toISOString()
-  });
-  student_progress.push({
-    progress_id: 5,
-    student_id: 3,
-    chapter_id: 3,
-    is_unlocked: 1,
-    is_completed: 0,
-    highest_score: 0.0,
-    unlocked_at: new Date(Date.now() - 86400000).toISOString(),
-    completed_at: null
-  });
-  quiz_attempts.push({
-    attempt_id: attemptCounter++,
-    quiz_id: 1,
-    student_id: 3,
-    score: 20,
-    total_questions: 20,
-    percentage: 100.0,
-    passed: 1,
-    time_taken_seconds: 350,
-    attempted_at: new Date(Date.now() - 86400000 * 2).toISOString()
-  });
-  quiz_attempts.push({
-    attempt_id: attemptCounter++,
-    quiz_id: 2,
-    student_id: 3,
-    score: 17,
-    total_questions: 20,
-    percentage: 85.0,
-    passed: 1,
-    time_taken_seconds: 480,
-    attempted_at: new Date(Date.now() - 86400000).toISOString()
-  });
-
-  // Student 3 (Carlo Reyes): failed Ch 1 (12/20 = 60%) -> Ch 1 shows failed, Ch 2 locked!
-  student_progress.push({
-    progress_id: 6,
-    student_id: 4, // student3
-    chapter_id: 1,
-    is_unlocked: 1,
-    is_completed: 0,
-    highest_score: 60.0,
-    unlocked_at: new Date(Date.now() - 86400000 * 2).toISOString(),
-    completed_at: null
-  });
-  quiz_attempts.push({
-    attempt_id: attemptCounter++,
-    quiz_id: 1,
-    student_id: 4,
-    score: 12,
-    total_questions: 20,
-    percentage: 60.0,
-    passed: 0,
-    time_taken_seconds: 520,
-    attempted_at: new Date(Date.now() - 86400000).toISOString()
-  });
-
-  // Student 4 (Ana Gomez): Honor student who passed all 12 chapters!
-  for (let chNum = 1; chNum <= 12; chNum++) {
-    const score = 18 + (chNum % 3); // 18, 19, or 20
-    const pct = (score / 20) * 100;
-    student_progress.push({
-      progress_id: 6 + chNum,
-      student_id: 5, // student4
-      chapter_id: chNum,
-      is_unlocked: 1,
-      is_completed: 1,
-      highest_score: pct,
-      unlocked_at: new Date(Date.now() - 86400000 * (13 - chNum)).toISOString(),
-      completed_at: new Date(Date.now() - 86400000 * (12 - chNum)).toISOString()
-    });
-    quiz_attempts.push({
-      attempt_id: attemptCounter++,
-      quiz_id: chNum,
-      student_id: 5,
-      score: score,
-      total_questions: 20,
-      percentage: pct,
-      passed: 1,
-      time_taken_seconds: 320 + chNum * 15,
-      attempted_at: new Date(Date.now() - 86400000 * (12 - chNum)).toISOString()
-    });
-  }
-
-  memoryStore = {
-    users,
-    course,
-    chapters,
-    quizzes,
-    quiz_questions,
-    student_progress,
-    quiz_attempts,
-    quiz_attempt_answers: []
-  };
-
-  saveMemoryStore();
-  console.log("[DB] Seeded fresh LMS database with 12 chapters, 240 questions, and sample student attempts.");
-}
-
-function ensureStore() {
-  if (!memoryStore) {
-    initMemoryStore();
-  }
-}
-
-function saveMemoryStore() {
+function jsonValue(value, fallback) {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== "string") return value;
   try {
-    fs.writeFileSync(STORE_PATH, JSON.stringify(memoryStore, null, 2), "utf8");
-  } catch (err) {
-    console.error("[DB] Error saving persistent store:", err.message);
+    return JSON.parse(value);
+  } catch {
+    return fallback;
   }
 }
 
-// Connect to DB (attempt MySQL, fallback to persistent JSON store)
 async function initDB() {
-  initMemoryStore();
+  pool = mysql.createPool({
+    host: process.env.DB_HOST || "localhost",
+    user: process.env.DB_USER || "root",
+    password: process.env.DB_PASSWORD || "",
+    database: process.env.DB_NAME || "cloudcomputinglms",
+    waitForConnections: true,
+    connectionLimit: 10,
+    connectTimeout: 2000
+  });
 
-  try {
-    const testPool = mysql.createPool({
-      host: process.env.DB_HOST || "localhost",
-      user: process.env.DB_USER || "root",
-      password: process.env.DB_PASSWORD || "",
-      database: process.env.DB_NAME || "cloudcomputinglms",
-      waitForConnections: true,
-      connectionLimit: 5,
-      connectTimeout: 2000
-    });
-
-    const conn = await testPool.getConnection();
-    console.log("[DB] Connected to MySQL successfully! MySQL Mode Active.");
-    conn.release();
-    pool = testPool;
-    isMySQLActive = true;
-  } catch (error) {
-    console.log(`[DB] MySQL not available (${error.code || error.message}). Running in Standalone Persistent Database mode.`);
-    isMySQLActive = false;
-  }
+  const connection = await pool.getConnection();
+  connection.release();
+  console.log("[DB] Connected to MySQL successfully. MySQL-only mode active.");
 }
 
-// Database helper functions
+function requirePool() {
+  if (!pool) throw new Error("Database is not initialized.");
+  return pool;
+}
+
+function chapterWithJson(chapter) {
+  if (!chapter) return null;
+  return {
+    ...chapter,
+    objectives: jsonValue(chapter.objectives, []),
+    slides: jsonValue(chapter.slides, [])
+  };
+}
+
+function questionWithJson(question) {
+  if (!question) return null;
+  return { ...question, explanation: question.explanation || "" };
+}
+
 const db = {
   isMySQL() {
-    return isMySQLActive;
+    return Boolean(pool);
   },
 
   async getCourse() {
-    return memoryStore.course;
+    const [rows] = await requirePool().execute("SELECT * FROM courses ORDER BY course_id LIMIT 1");
+    return rows[0] || null;
   },
 
   async getAllUsers() {
-    return memoryStore.users.map(({ password_hash, ...u }) => u);
+    const [rows] = await requirePool().execute(
+      "SELECT user_id, username, first_name, surname, role, is_active, created_at FROM users"
+    );
+    return rows;
   },
 
   async findUserByUsername(username) {
-    if (isMySQLActive) {
-      const [rows] = await pool.execute(
-        "SELECT user_id, username, password_hash, first_name, surname, role, is_active FROM users WHERE username = ? AND is_active = 1 LIMIT 1",
-        [username.trim()]
-      );
-      return rows[0] || null;
-    }
-    return memoryStore.users.find((u) => u.username.toLowerCase() === username.toLowerCase().trim());
+    const [rows] = await requirePool().execute(
+      "SELECT user_id, username, password_hash, first_name, surname, role, is_active FROM users WHERE username = ? AND is_active = 1 LIMIT 1",
+      [username.trim()]
+    );
+    return rows[0] || null;
   },
 
   async findUserById(id) {
-    if (isMySQLActive) {
-      const [rows] = await pool.execute(
-        "SELECT user_id, username, first_name, surname, role, is_active FROM users WHERE user_id = ? AND is_active = 1 LIMIT 1",
-        [id]
-      );
-      return rows[0] || null;
-    }
-    const user = memoryStore.users.find((u) => u.user_id === Number(id));
-    if (!user) return null;
-    const { password_hash, ...safe } = user;
-    return safe;
+    const [rows] = await requirePool().execute(
+      "SELECT user_id, username, first_name, surname, role, is_active FROM users WHERE user_id = ? AND is_active = 1 LIMIT 1",
+      [id]
+    );
+    return rows[0] || null;
   },
 
   async createUser({ username, password_hash, first_name, surname }) {
-    if (!isMySQLActive) {
-      throw new Error("Database is unavailable. Registration requires an active MySQL connection.");
-    }
-
     const existing = await this.findUserByUsername(username);
-    if (existing) {
-      throw new Error("Username already taken.");
-    }
-
-    const [result] = await pool.execute(
+    if (existing) throw new Error("Username already taken.");
+    const database = requirePool();
+    const [result] = await database.execute(
       "INSERT INTO users (username, password_hash, first_name, surname, role, is_active) VALUES (?, ?, ?, ?, 'student', 1)",
       [username.trim(), password_hash, first_name.trim(), surname.trim()]
     );
-    const [rows] = await pool.execute(
-      "SELECT user_id, username, first_name, surname, role, is_active FROM users WHERE user_id = ? LIMIT 1",
-      [result.insertId]
-    );
-    return rows[0];
+    return this.findUserById(result.insertId);
   },
 
   async getChaptersForUser(userId, role) {
-    const isFaculty = role === "faculty";
-    const userProgress = isFaculty
-      ? []
-      : memoryStore.student_progress.filter((p) => p.student_id === Number(userId));
-
-    return memoryStore.chapters.map((ch) => {
-      let is_unlocked = isFaculty ? 1 : 0;
-      let is_completed = 0;
-      let highest_score = 0;
-
-      if (isFaculty) {
-        is_unlocked = 1;
-      } else {
-        // Chapter 1 is unlocked by default for all students
-        if (ch.chapter_number === 1) {
-          is_unlocked = 1;
-        }
-        const prog = userProgress.find((p) => p.chapter_id === ch.chapter_id);
-        if (prog) {
-          is_unlocked = prog.is_unlocked ? 1 : is_unlocked;
-          is_completed = prog.is_completed ? 1 : 0;
-          highest_score = prog.highest_score || 0;
-        }
-      }
-
-      return {
-        chapter_id: ch.chapter_id,
-        chapter_number: ch.chapter_number,
-        module_title: ch.module_title,
-        chapter_title: ch.chapter_title,
-        is_unlocked,
-        is_completed,
-        highest_score,
-        slides_count: ch.slides ? ch.slides.length : 0
-      };
-    });
+    const [chapters] = await requirePool().execute(
+      `SELECT ch.chapter_id, ch.chapter_number, ch.module_title, ch.chapter_title,
+              CASE WHEN ? = 'faculty' OR ch.chapter_number = 1 OR COALESCE(sp.is_unlocked, 0) = 1
+                   THEN 1 ELSE 0 END AS is_unlocked,
+              COALESCE(sp.is_completed, 0) AS is_completed,
+              COALESCE(sp.highest_score, 0) AS highest_score,
+              JSON_LENGTH(COALESCE(ch.slides, JSON_ARRAY())) AS slides_count
+       FROM chapters ch
+       LEFT JOIN student_progress sp ON sp.chapter_id = ch.chapter_id AND sp.student_id = ?
+       ORDER BY ch.chapter_number`,
+      [role, userId || 0]
+    );
+    return chapters;
   },
 
   async getChapterById(chapterId, userId, role) {
-    const ch = memoryStore.chapters.find((c) => c.chapter_id === Number(chapterId));
-    if (!ch) return null;
-
-    const isFaculty = role === "faculty";
-    let is_unlocked = isFaculty ? 1 : (ch.chapter_number === 1 ? 1 : 0);
-    let is_completed = 0;
-    let highest_score = 0;
-
-    if (!isFaculty && userId) {
-      const prog = memoryStore.student_progress.find(
-        (p) => p.student_id === Number(userId) && p.chapter_id === Number(chapterId)
-      );
-      if (prog) {
-        is_unlocked = prog.is_unlocked ? 1 : is_unlocked;
-        is_completed = prog.is_completed ? 1 : 0;
-        highest_score = prog.highest_score || 0;
-      }
-    }
-
-    return {
-      ...ch,
-      is_unlocked,
-      is_completed,
-      highest_score
-    };
+    const [rows] = await requirePool().execute(
+      `SELECT ch.*, CASE WHEN ? = 'faculty' OR ch.chapter_number = 1 OR COALESCE(sp.is_unlocked, 0) = 1
+                    THEN 1 ELSE 0 END AS is_unlocked,
+              COALESCE(sp.is_completed, 0) AS is_completed,
+              COALESCE(sp.highest_score, 0) AS highest_score
+       FROM chapters ch
+       LEFT JOIN student_progress sp ON sp.chapter_id = ch.chapter_id AND sp.student_id = ?
+       WHERE ch.chapter_id = ? LIMIT 1`,
+      [role, userId || 0, chapterId]
+    );
+    return chapterWithJson(rows[0]);
   },
 
-  async updateChapter(chapterId, { summary_text, presentation_url, slides, objectives, chapter_title }) {
-    const ch = memoryStore.chapters.find((c) => c.chapter_id === Number(chapterId));
-    if (!ch) throw new Error("Chapter not found");
-
-    if (summary_text !== undefined) ch.summary_text = summary_text;
-    if (presentation_url !== undefined) ch.presentation_url = presentation_url;
-    if (slides !== undefined) ch.slides = slides;
-    if (objectives !== undefined) ch.objectives = objectives;
-    if (chapter_title !== undefined) ch.chapter_title = chapter_title;
-
-    ch.updated_at = new Date().toISOString();
-    saveMemoryStore();
-    return ch;
+  async updateChapter(chapterId, data) {
+    const fields = [];
+    const values = [];
+    const jsonFields = ["objectives", "slides"];
+    for (const field of ["summary_text", "presentation_url", "chapter_title"]) {
+      if (data[field] !== undefined) {
+        fields.push(`${field} = ?`);
+        values.push(data[field]);
+      }
+    }
+    for (const field of jsonFields) {
+      if (data[field] !== undefined) {
+        fields.push(`${field} = ?`);
+        values.push(JSON.stringify(data[field]));
+      }
+    }
+    if (!fields.length) return this.getChapterById(chapterId, null, "faculty");
+    values.push(chapterId);
+    const [result] = await requirePool().execute(
+      `UPDATE chapters SET ${fields.join(", ")} WHERE chapter_id = ?`,
+      values
+    );
+    if (!result.affectedRows) throw new Error("Chapter not found");
+    return this.getChapterById(chapterId, null, "faculty");
   },
 
   async getQuizByChapterId(chapterId) {
-    return memoryStore.quizzes.find((q) => q.chapter_id === Number(chapterId));
+    const [rows] = await requirePool().execute(
+      "SELECT * FROM quizzes WHERE chapter_id = ? LIMIT 1",
+      [chapterId]
+    );
+    return rows[0] || null;
   },
 
   async getQuizQuestions(quizId, includeAnswers = false) {
-    const questions = memoryStore.quiz_questions.filter((q) => q.quiz_id === Number(quizId));
-    return questions.map((q) => {
-      if (includeAnswers) {
-        return { ...q };
+    const [rows] = await requirePool().execute(
+      "SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY question_id",
+      [quizId]
+    );
+    return rows.map((question) => {
+      const result = questionWithJson(question);
+      if (!includeAnswers) {
+        delete result.correct_option;
+        delete result.explanation;
       }
-      const { correct_option, explanation, ...safeQ } = q;
-      return safeQ;
+      return result;
     });
   },
 
-  async addQuizQuestion(quizId, qData) {
-    const newId = memoryStore.quiz_questions.length
-      ? Math.max(...memoryStore.quiz_questions.map((q) => q.question_id)) + 1
-      : 1;
-
-    const newQuestion = {
-      question_id: newId,
-      quiz_id: Number(quizId),
-      question_text: qData.question_text,
-      option_a: qData.option_a,
-      option_b: qData.option_b,
-      option_c: qData.option_c,
-      option_d: qData.option_d,
-      correct_option: qData.correct_option.toUpperCase(),
-      explanation: qData.explanation || "",
-      created_at: new Date().toISOString()
-    };
-
-    memoryStore.quiz_questions.push(newQuestion);
-    // Update quiz total_questions count
-    const quiz = memoryStore.quizzes.find((q) => q.quiz_id === Number(quizId));
-    if (quiz) {
-      quiz.total_questions = memoryStore.quiz_questions.filter((q) => q.quiz_id === Number(quizId)).length;
-    }
-    saveMemoryStore();
-    return newQuestion;
+  async addQuizQuestion(quizId, data) {
+    const [result] = await requirePool().execute(
+      `INSERT INTO quiz_questions
+       (quiz_id, question_text, option_a, option_b, option_c, option_d, correct_option, explanation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [quizId, data.question_text, data.option_a, data.option_b, data.option_c, data.option_d,
+        data.correct_option.toUpperCase(), data.explanation || ""]
+    );
+    await requirePool().execute(
+      "UPDATE quizzes SET total_questions = (SELECT COUNT(*) FROM quiz_questions WHERE quiz_id = ?) WHERE quiz_id = ?",
+      [quizId, quizId]
+    );
+    const [rows] = await requirePool().execute("SELECT * FROM quiz_questions WHERE question_id = ?", [result.insertId]);
+    return questionWithJson(rows[0]);
   },
 
-  async updateQuizQuestion(questionId, qData) {
-    const q = memoryStore.quiz_questions.find((q) => q.question_id === Number(questionId));
-    if (!q) throw new Error("Question not found");
-
-    if (qData.question_text !== undefined) q.question_text = qData.question_text;
-    if (qData.option_a !== undefined) q.option_a = qData.option_a;
-    if (qData.option_b !== undefined) q.option_b = qData.option_b;
-    if (qData.option_c !== undefined) q.option_c = qData.option_c;
-    if (qData.option_d !== undefined) q.option_d = qData.option_d;
-    if (qData.correct_option !== undefined) q.correct_option = qData.correct_option.toUpperCase();
-    if (qData.explanation !== undefined) q.explanation = qData.explanation;
-
-    q.updated_at = new Date().toISOString();
-    saveMemoryStore();
-    return q;
+  async updateQuizQuestion(questionId, data) {
+    const fields = [];
+    const values = [];
+    for (const field of ["question_text", "option_a", "option_b", "option_c", "option_d", "explanation"]) {
+      if (data[field] !== undefined) {
+        fields.push(`${field} = ?`);
+        values.push(data[field]);
+      }
+    }
+    if (data.correct_option !== undefined) {
+      fields.push("correct_option = ?");
+      values.push(data.correct_option.toUpperCase());
+    }
+    if (!fields.length) throw new Error("No question fields to update.");
+    values.push(questionId);
+    const [result] = await requirePool().execute(
+      `UPDATE quiz_questions SET ${fields.join(", ")} WHERE question_id = ?`,
+      values
+    );
+    if (!result.affectedRows) throw new Error("Question not found");
+    const [rows] = await requirePool().execute("SELECT * FROM quiz_questions WHERE question_id = ?", [questionId]);
+    return questionWithJson(rows[0]);
   },
 
   async deleteQuizQuestion(questionId) {
-    const idx = memoryStore.quiz_questions.findIndex((q) => q.question_id === Number(questionId));
-    if (idx === -1) throw new Error("Question not found");
-    const quizId = memoryStore.quiz_questions[idx].quiz_id;
-    memoryStore.quiz_questions.splice(idx, 1);
-
-    const quiz = memoryStore.quizzes.find((q) => q.quiz_id === quizId);
-    if (quiz) {
-      quiz.total_questions = memoryStore.quiz_questions.filter((q) => q.quiz_id === quizId).length;
-    }
-    saveMemoryStore();
+    const [result] = await requirePool().execute("DELETE FROM quiz_questions WHERE question_id = ?", [questionId]);
+    if (!result.affectedRows) throw new Error("Question not found");
     return true;
   },
 
   async resetChapterQuiz(chapterId) {
-    const chIdx = Number(chapterId) - 1;
-    if (chIdx < 0 || chIdx >= curriculum.chapters.length) throw new Error("Invalid chapter");
-    const defaultCh = curriculum.chapters[chIdx];
-
-    // Remove existing questions for this quiz
-    memoryStore.quiz_questions = memoryStore.quiz_questions.filter((q) => q.quiz_id !== Number(chapterId));
-
-    let maxId = memoryStore.quiz_questions.length
-      ? Math.max(...memoryStore.quiz_questions.map((q) => q.question_id))
-      : 0;
-
-    defaultCh.quiz.questions.forEach((q) => {
-      memoryStore.quiz_questions.push({
-        question_id: ++maxId,
-        quiz_id: Number(chapterId),
-        question_text: q.question_text,
-        option_a: q.option_a,
-        option_b: q.option_b,
-        option_c: q.option_c,
-        option_d: q.option_d,
-        correct_option: q.correct_option,
-        explanation: q.explanation || "",
-        created_at: new Date().toISOString()
-      });
-    });
-
-    const quiz = memoryStore.quizzes.find((q) => q.quiz_id === Number(chapterId));
-    if (quiz) {
-      quiz.total_questions = defaultCh.quiz.questions.length;
+    const chapter = curriculum.chapters[Number(chapterId) - 1];
+    if (!chapter) throw new Error("Invalid chapter");
+    const quiz = await this.getQuizByChapterId(chapterId);
+    if (!quiz) throw new Error("Quiz not found");
+    const connection = await requirePool().getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.execute("DELETE FROM quiz_questions WHERE quiz_id = ?", [quiz.quiz_id]);
+      for (const question of chapter.quiz.questions) {
+        await connection.execute(
+          `INSERT INTO quiz_questions
+           (quiz_id, question_text, option_a, option_b, option_c, option_d, correct_option, explanation)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [quiz.quiz_id, question.question_text, question.option_a, question.option_b, question.option_c,
+            question.option_d, question.correct_option, question.explanation || ""]
+        );
+      }
+      await connection.execute("UPDATE quizzes SET total_questions = ? WHERE quiz_id = ?",
+        [chapter.quiz.questions.length, quiz.quiz_id]);
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
     }
-    saveMemoryStore();
     return true;
   },
 
   async submitQuizAttempt({ quizId, studentId, answers, timeTakenSeconds }) {
-    const questions = memoryStore.quiz_questions.filter((q) => q.quiz_id === Number(quizId));
-    const total = questions.length;
-    if (total === 0) throw new Error("No questions in this quiz.");
-
-    let correctCount = 0;
-    const answerAudit = [];
-
-    questions.forEach((q) => {
-      const selected = answers[q.question_id] || "";
-      const isCorrect = selected.toUpperCase() === q.correct_option.toUpperCase();
-      if (isCorrect) correctCount++;
-      answerAudit.push({
-        question_id: q.question_id,
-        question_text: q.question_text,
-        selected_option: selected,
-        correct_option: q.correct_option,
-        is_correct: isCorrect ? 1 : 0,
-        explanation: q.explanation
-      });
-    });
-
-    const percentage = Number(((correctCount / total) * 100).toFixed(2));
-    const passed = percentage >= 75.0 ? 1 : 0;
-
-    const newAttemptId = memoryStore.quiz_attempts.length
-      ? Math.max(...memoryStore.quiz_attempts.map((a) => a.attempt_id)) + 1
-      : 1;
-
-    const attemptRecord = {
-      attempt_id: newAttemptId,
-      quiz_id: Number(quizId),
-      student_id: Number(studentId),
-      score: correctCount,
-      total_questions: total,
-      percentage,
-      passed,
-      time_taken_seconds: timeTakenSeconds || 0,
-      attempted_at: new Date().toISOString()
-    };
-    memoryStore.quiz_attempts.push(attemptRecord);
-
-    // Save answer audits
-    answerAudit.forEach((aud) => {
-      memoryStore.quiz_attempt_answers.push({
-        answer_id: memoryStore.quiz_attempt_answers.length + 1,
-        attempt_id: newAttemptId,
-        question_id: aud.question_id,
-        selected_option: aud.selected_option,
-        is_correct: aud.is_correct
-      });
-    });
-
-    // Update student progress and SEQUENTIAL UNLOCKING logic
-    const quiz = memoryStore.quizzes.find((q) => q.quiz_id === Number(quizId));
-    const currentChapterId = quiz ? quiz.chapter_id : Number(quizId);
-
-    let progress = memoryStore.student_progress.find(
-      (p) => p.student_id === Number(studentId) && p.chapter_id === currentChapterId
+    const database = requirePool();
+    const [questions] = await database.execute(
+      "SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY question_id", [quizId]
     );
-
-    if (!progress) {
-      progress = {
-        progress_id: memoryStore.student_progress.length + 1,
-        student_id: Number(studentId),
-        chapter_id: currentChapterId,
-        is_unlocked: 1,
-        is_completed: 0,
-        highest_score: percentage,
-        unlocked_at: new Date().toISOString(),
-        completed_at: passed ? new Date().toISOString() : null
+    if (!questions.length) throw new Error("No questions in this quiz.");
+    let correctCount = 0;
+    const answerAudit = questions.map((question) => {
+      const selected = (answers[question.question_id] || "").toUpperCase();
+      const isCorrect = selected === question.correct_option;
+      if (isCorrect) correctCount++;
+      return {
+        question_id: question.question_id,
+        question_text: question.question_text,
+        selected_option: selected,
+        correct_option: question.correct_option,
+        is_correct: isCorrect ? 1 : 0,
+        explanation: question.explanation || ""
       };
-      memoryStore.student_progress.push(progress);
-    } else {
-      if (percentage > (progress.highest_score || 0)) {
-        progress.highest_score = percentage;
-      }
-      if (passed && !progress.is_completed) {
-        progress.is_completed = 1;
-        progress.completed_at = new Date().toISOString();
-      }
-    }
-
-    // GATING UNLOCK LOGIC:
-    // If student PASSED (>= 75%), unlock Chapter N+1
-    let nextChapterUnlocked = false;
-    let nextChapterId = null;
-
-    if (passed) {
-      const currentCh = memoryStore.chapters.find((c) => c.chapter_id === currentChapterId);
-      if (currentCh && currentCh.chapter_number < 12) {
-        const nextCh = memoryStore.chapters.find((c) => c.chapter_number === currentCh.chapter_number + 1);
-        if (nextCh) {
-          nextChapterId = nextCh.chapter_id;
-          let nextProg = memoryStore.student_progress.find(
-            (p) => p.student_id === Number(studentId) && p.chapter_id === nextCh.chapter_id
+    });
+    const total = questions.length;
+    const percentage = Number(((correctCount / total) * 100).toFixed(2));
+    const passed = percentage >= 75 ? 1 : 0;
+    const connection = await database.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [attemptResult] = await connection.execute(
+        `INSERT INTO quiz_attempts
+         (quiz_id, student_id, score, total_questions, percentage, passed, time_taken_seconds)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [quizId, studentId, correctCount, total, percentage, passed, timeTakenSeconds || 0]
+      );
+      for (const answer of answerAudit) {
+        if (["A", "B", "C", "D"].includes(answer.selected_option)) {
+          await connection.execute(
+            `INSERT INTO quiz_attempt_answers (attempt_id, question_id, selected_option, is_correct)
+             VALUES (?, ?, ?, ?)`,
+            [attemptResult.insertId, answer.question_id, answer.selected_option, answer.is_correct]
           );
-          if (!nextProg) {
-            nextProg = {
-              progress_id: memoryStore.student_progress.length + 1,
-              student_id: Number(studentId),
-              chapter_id: nextCh.chapter_id,
-              is_unlocked: 1,
-              is_completed: 0,
-              highest_score: 0.0,
-              unlocked_at: new Date().toISOString(),
-              completed_at: null
-            };
-            memoryStore.student_progress.push(nextProg);
-            nextChapterUnlocked = true;
-          } else if (!nextProg.is_unlocked) {
-            nextProg.is_unlocked = 1;
-            nextProg.unlocked_at = new Date().toISOString();
-            nextChapterUnlocked = true;
-          }
         }
       }
+      const [quizRows] = await connection.execute("SELECT chapter_id FROM quizzes WHERE quiz_id = ?", [quizId]);
+      const chapterId = quizRows[0].chapter_id;
+      await connection.execute(
+        `INSERT INTO student_progress
+         (student_id, chapter_id, is_unlocked, is_completed, highest_score, unlocked_at, completed_at)
+         VALUES (?, ?, 1, ?, ?, CURRENT_TIMESTAMP, ?)
+         ON DUPLICATE KEY UPDATE
+           highest_score = GREATEST(highest_score, VALUES(highest_score)),
+           is_completed = GREATEST(is_completed, VALUES(is_completed)),
+           completed_at = CASE WHEN VALUES(is_completed) = 1 THEN COALESCE(completed_at, VALUES(completed_at)) ELSE completed_at END`,
+        [studentId, chapterId, passed, percentage, passed ? new Date() : null]
+      );
+      if (passed) {
+        await connection.execute(
+          `INSERT INTO student_progress
+           (student_id, chapter_id, is_unlocked, is_completed, highest_score, unlocked_at)
+           SELECT ?, next_ch.chapter_id, 1, 0, 0, CURRENT_TIMESTAMP
+           FROM chapters current_ch
+           JOIN chapters next_ch ON next_ch.course_id = current_ch.course_id
+             AND next_ch.chapter_number = current_ch.chapter_number + 1
+           WHERE current_ch.chapter_id = ?
+           ON DUPLICATE KEY UPDATE is_unlocked = 1`,
+          [studentId, chapterId]
+        );
+      }
+      await connection.commit();
+      const [attemptRows] = await database.execute("SELECT * FROM quiz_attempts WHERE attempt_id = ?", [attemptResult.insertId]);
+      const [nextRows] = await database.execute(
+        "SELECT chapter_id FROM student_progress WHERE student_id = ? AND chapter_id = ? + 1 AND is_unlocked = 1",
+        [studentId, chapterId]
+      );
+      return {
+        attempt: attemptRows[0],
+        passed: Boolean(passed),
+        score: correctCount,
+        total_questions: total,
+        percentage,
+        nextChapterUnlocked: Boolean(passed && nextRows.length),
+        nextChapterId: nextRows[0] ? nextRows[0].chapter_id : null,
+        answerAudit
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
     }
-
-    saveMemoryStore();
-
-    return {
-      attempt: attemptRecord,
-      passed: Boolean(passed),
-      score: correctCount,
-      total_questions: total,
-      percentage,
-      nextChapterUnlocked,
-      nextChapterId,
-      answerAudit
-    };
   },
 
   async getTopicGradebook(chapterId, sortBy = "surname", order = "asc") {
-    const chId = Number(chapterId);
-    const quiz = memoryStore.quizzes.find((q) => q.chapter_id === chId);
-    if (!quiz) return [];
-
-    const students = memoryStore.users.filter((u) => u.role === "student");
-    const attempts = memoryStore.quiz_attempts.filter((a) => a.quiz_id === quiz.quiz_id);
-
-    const rows = students.map((stu) => {
-      const stuAttempts = attempts.filter((a) => a.student_id === stu.user_id);
-      const totalAttempts = stuAttempts.length;
-      let highestScore = 0;
-      let highestPct = 0;
-      let hasPassed = 0;
-      let lastAttemptAt = null;
-
-      if (totalAttempts > 0) {
-        stuAttempts.sort((a, b) => new Date(b.attempted_at) - new Date(a.attempted_at));
-        lastAttemptAt = stuAttempts[0].attempted_at;
-        highestScore = Math.max(...stuAttempts.map((a) => a.score));
-        highestPct = Math.max(...stuAttempts.map((a) => a.percentage));
-        hasPassed = stuAttempts.some((a) => a.passed) ? 1 : 0;
-      }
-
-      return {
-        student_id: stu.user_id,
-        surname: stu.surname,
-        first_name: stu.first_name,
-        student_name: `${stu.surname}, ${stu.first_name}`,
-        total_attempts: totalAttempts,
-        highest_score: highestScore,
-        highest_percentage: highestPct,
-        has_passed: hasPassed,
-        last_attempt_at: lastAttemptAt
-      };
-    });
-
-    rows.sort((a, b) => {
-      if (sortBy === "score") {
-        return order === "desc"
-          ? b.highest_percentage - a.highest_percentage
-          : a.highest_percentage - b.highest_percentage;
-      }
-      // default: surname
-      const cmp = a.surname.localeCompare(b.surname);
-      return order === "desc" ? -cmp : cmp;
-    });
-
+    const [rows] = await requirePool().execute(
+      `SELECT u.user_id AS student_id, u.surname, u.first_name,
+              CONCAT(u.surname, ', ', u.first_name) AS student_name,
+              COALESCE(MAX(qa.score), 0) AS highest_score,
+              COALESCE(MAX(qa.percentage), 0) AS highest_percentage,
+              COALESCE(MAX(qa.passed), 0) AS has_passed,
+              COUNT(qa.attempt_id) AS total_attempts,
+              MAX(qa.attempted_at) AS last_attempt_at
+       FROM users u
+       LEFT JOIN quizzes q ON q.chapter_id = ? 
+       LEFT JOIN quiz_attempts qa ON qa.quiz_id = q.quiz_id AND qa.student_id = u.user_id
+       WHERE u.role = 'student'
+       GROUP BY u.user_id, u.surname, u.first_name
+       ORDER BY ${sortBy === "score" ? "highest_percentage" : "surname"} ${order === "desc" ? "DESC" : "ASC"}`,
+      [chapterId]
+    );
     return rows;
   },
 
   async getMasterGradebook() {
-    const students = memoryStore.users.filter((u) => u.role === "student");
-    const chapters = memoryStore.chapters;
-    const quizzes = memoryStore.quizzes;
-    const attempts = memoryStore.quiz_attempts;
-
-    const matrix = students.map((stu) => {
+    const [chapters] = await requirePool().execute("SELECT chapter_number, chapter_title FROM chapters ORDER BY chapter_number");
+    const [students] = await requirePool().execute(
+      "SELECT user_id, surname, first_name, username FROM users WHERE role = 'student' ORDER BY surname"
+    );
+    const [attempts] = await requirePool().execute(
+      `SELECT qa.student_id, ch.chapter_number, qa.score, qa.percentage, qa.passed
+       FROM quiz_attempts qa JOIN quizzes q ON q.quiz_id = qa.quiz_id
+       JOIN chapters ch ON ch.chapter_id = q.chapter_id`
+    );
+    const matrix = students.map((student) => {
       const chapterScores = {};
       let totalPassed = 0;
       let sumPercentages = 0;
-
-      chapters.forEach((ch) => {
-        const quiz = quizzes.find((q) => q.chapter_id === ch.chapter_id);
-        if (!quiz) {
-          chapterScores[ch.chapter_number] = { score: 0, percentage: 0, passed: 0, attempts: 0 };
-          return;
-        }
-
-        const stuAttempts = attempts.filter(
-          (a) => a.quiz_id === quiz.quiz_id && a.student_id === stu.user_id
-        );
-
-        if (stuAttempts.length === 0) {
-          chapterScores[ch.chapter_number] = { score: 0, percentage: 0, passed: 0, attempts: 0 };
-        } else {
-          const maxPct = Math.max(...stuAttempts.map((a) => a.percentage));
-          const maxScore = Math.max(...stuAttempts.map((a) => a.score));
-          const passed = stuAttempts.some((a) => a.passed) ? 1 : 0;
-          if (passed) totalPassed++;
-          sumPercentages += maxPct;
-          chapterScores[ch.chapter_number] = {
-            score: maxScore,
-            percentage: maxPct,
-            passed,
-            attempts: stuAttempts.length
-          };
-        }
-      });
-
-      const averagePercentage = Number((sumPercentages / chapters.length).toFixed(2));
-      const completionRate = Number(((totalPassed / chapters.length) * 100).toFixed(1));
-
+      for (const chapter of chapters) {
+        const values = attempts.filter((a) => a.student_id === student.user_id && a.chapter_number === chapter.chapter_number);
+        const maxPercentage = values.length ? Math.max(...values.map((a) => Number(a.percentage))) : 0;
+        const maxScore = values.length ? Math.max(...values.map((a) => Number(a.score))) : 0;
+        const passed = values.some((a) => a.passed) ? 1 : 0;
+        totalPassed += passed;
+        sumPercentages += maxPercentage;
+        chapterScores[chapter.chapter_number] = { score: maxScore, percentage: maxPercentage, passed, attempts: values.length };
+      }
       return {
-        student_id: stu.user_id,
-        surname: stu.surname,
-        first_name: stu.first_name,
-        student_name: `${stu.surname}, ${stu.first_name}`,
-        chapterScores,
-        totalPassed,
+        student_id: student.user_id, surname: student.surname, first_name: student.first_name,
+        student_name: `${student.surname}, ${student.first_name}`, chapterScores, totalPassed,
         totalChapters: chapters.length,
-        averagePercentage,
-        completionRate,
+        averagePercentage: chapters.length ? Number((sumPercentages / chapters.length).toFixed(2)) : 0,
+        completionRate: chapters.length ? Number(((totalPassed / chapters.length) * 100).toFixed(1)) : 0,
         isCompletedAll: totalPassed === chapters.length
       };
     });
-
-    // Sort alphabetically by surname
-    matrix.sort((a, b) => a.surname.localeCompare(b.surname));
-
-    // Calculate class global analytics KPIs
-    const totalStudents = students.length;
-    const classAvg = totalStudents
-      ? Number((matrix.reduce((acc, s) => acc + s.averagePercentage, 0) / totalStudents).toFixed(2))
-      : 0;
-    const certifiedCount = matrix.filter((s) => s.isCompletedAll).length;
-
     return {
       summary: {
-        totalStudents,
+        totalStudents: students.length,
         totalChapters: chapters.length,
-        classAverage: classAvg,
-        certifiedGraduates: certifiedCount
+        classAverage: students.length ? Number((matrix.reduce((sum, s) => sum + s.averagePercentage, 0) / students.length).toFixed(2)) : 0,
+        certifiedGraduates: matrix.filter((s) => s.isCompletedAll).length
       },
-      chapters: chapters.map((c) => ({
-        chapter_number: c.chapter_number,
-        chapter_title: c.chapter_title
-      })),
+      chapters,
       matrix
     };
   },
 
   async getStudentIndividualReport(studentId) {
-    const stu = memoryStore.users.find((u) => u.user_id === Number(studentId));
-    if (!stu) throw new Error("Student not found");
-
-    const chapters = memoryStore.chapters;
-    const attempts = memoryStore.quiz_attempts.filter((a) => a.student_id === Number(studentId));
-    const progress = memoryStore.student_progress.filter((p) => p.student_id === Number(studentId));
-
-    const chapterReports = chapters.map((ch) => {
-      const chProgress = progress.find((p) => p.chapter_id === ch.chapter_id);
-      const chAttempts = attempts.filter((a) => a.quiz_id === ch.chapter_id);
-
+    const [students] = await requirePool().execute(
+      "SELECT user_id, username, first_name, surname FROM users WHERE user_id = ? AND role = 'student'",
+      [studentId]
+    );
+    if (!students[0]) throw new Error("Student not found");
+    const [chapters] = await requirePool().execute("SELECT * FROM chapters ORDER BY chapter_number");
+    const [progress] = await requirePool().execute("SELECT * FROM student_progress WHERE student_id = ?", [studentId]);
+    const [attempts] = await requirePool().execute(
+      `SELECT qa.*, q.chapter_id FROM quiz_attempts qa
+       JOIN quizzes q ON q.quiz_id = qa.quiz_id WHERE qa.student_id = ?`,
+      [studentId]
+    );
+    const chapterReports = chapters.map((chapter) => {
+      const currentProgress = progress.find((p) => p.chapter_id === chapter.chapter_id);
+      const currentAttempts = attempts.filter((a) => a.chapter_id === chapter.chapter_id);
       return {
-        chapter_number: ch.chapter_number,
-        chapter_title: ch.chapter_title,
-        module_title: ch.module_title,
-        is_unlocked: chProgress ? chProgress.is_unlocked : (ch.chapter_number === 1 ? 1 : 0),
-        is_completed: chProgress ? chProgress.is_completed : 0,
-        highest_score: chProgress ? chProgress.highest_score : 0,
-        total_attempts: chAttempts.length,
-        attempts: chAttempts.map((a) => ({
-          score: a.score,
-          percentage: a.percentage,
-          passed: a.passed,
-          attempted_at: a.attempted_at
+        chapter_number: chapter.chapter_number, chapter_title: chapter.chapter_title,
+        module_title: chapter.module_title,
+        is_unlocked: currentProgress ? currentProgress.is_unlocked : chapter.chapter_number === 1 ? 1 : 0,
+        is_completed: currentProgress ? currentProgress.is_completed : 0,
+        highest_score: currentProgress ? currentProgress.highest_score : 0,
+        total_attempts: currentAttempts.length,
+        attempts: currentAttempts.map((a) => ({
+          score: a.score, percentage: a.percentage, passed: a.passed, attempted_at: a.attempted_at
         }))
       };
     });
-
-    const passedCount = chapterReports.filter((c) => c.is_completed).length;
-    const avgScore = passedCount
-      ? Number(
-          (
-            chapterReports.reduce((acc, c) => acc + (c.highest_score || 0), 0) /
-            chapterReports.length
-          ).toFixed(2)
-        )
-      : 0;
-
+    const passedCount = chapterReports.filter((chapter) => chapter.is_completed).length;
     return {
       student: {
-        user_id: stu.user_id,
-        name: `${stu.first_name} ${stu.surname}`,
-        surname: stu.surname,
-        first_name: stu.first_name,
-        username: stu.username
+        user_id: students[0].user_id, name: `${students[0].first_name} ${students[0].surname}`,
+        surname: students[0].surname, first_name: students[0].first_name, username: students[0].username
       },
-      course: memoryStore.course,
-      passedCount,
-      totalChapters: chapters.length,
-      overallProgress: Number(((passedCount / chapters.length) * 100).toFixed(1)),
-      averageScore: avgScore,
+      course: await this.getCourse(),
+      passedCount, totalChapters: chapters.length,
+      overallProgress: chapters.length ? Number(((passedCount / chapters.length) * 100).toFixed(1)) : 0,
+      averageScore: chapters.length
+        ? Number((chapterReports.reduce((sum, chapter) => sum + Number(chapter.highest_score || 0), 0) / chapters.length).toFixed(2))
+        : 0,
       chapters: chapterReports
     };
   }
 };
 
-// Initialize memory store immediately so db methods are ready upon import
-initMemoryStore();
-
-module.exports = {
-  initDB,
-  db
-};
+module.exports = { initDB, db };

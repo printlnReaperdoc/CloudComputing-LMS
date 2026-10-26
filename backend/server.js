@@ -33,7 +33,7 @@ app.get("/api/status", (req, res) => {
   res.json({
     success: true,
     message: "Cloud Computing LMS Backend Online",
-    database: db.isMySQL() ? "MySQL Engine" : "Persistent Standalone Engine",
+    database: "MySQL Engine",
     time: new Date().toISOString()
   });
 });
@@ -74,7 +74,7 @@ async function startServer() {
     console.log(` Cloud Computing (Elective 4) LMS Server Online!   `);
     console.log(` Course: ITEP413-T | 4th Year, 1st Term (4-1)       `);
     console.log(` URL: http://localhost:${PORT}                      `);
-    console.log(` Mode: ${db.isMySQL() ? "MySQL Connected" : "Standalone Persistent Storage"} `);
+    console.log(` Mode: MySQL Connected `);
     console.log(`====================================================`);
   });
 }
