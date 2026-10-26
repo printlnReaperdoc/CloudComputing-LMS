@@ -318,41 +318,25 @@ const db = {
     return safe;
   },
 
-  async createUser({ username, password_hash, first_name, surname, role }) {
+  async createUser({ username, password_hash, first_name, surname }) {
+    if (!isMySQLActive) {
+      throw new Error("Database is unavailable. Registration requires an active MySQL connection.");
+    }
+
     const existing = await this.findUserByUsername(username);
     if (existing) {
       throw new Error("Username already taken.");
     }
-    const newId = memoryStore.users.length ? Math.max(...memoryStore.users.map((u) => u.user_id)) + 1 : 1;
-    const newUser = {
-      user_id: newId,
-      username: username.trim(),
-      password_hash,
-      first_name: first_name.trim(),
-      surname: surname.trim(),
-      role: role === "faculty" ? "faculty" : "student",
-      is_active: 1,
-      created_at: new Date().toISOString()
-    };
-    memoryStore.users.push(newUser);
 
-    // If new user is a student, automatically unlock Chapter 1
-    if (newUser.role === "student") {
-      memoryStore.student_progress.push({
-        progress_id: memoryStore.student_progress.length + 1,
-        student_id: newId,
-        chapter_id: 1,
-        is_unlocked: 1,
-        is_completed: 0,
-        highest_score: 0.0,
-        unlocked_at: new Date().toISOString(),
-        completed_at: null
-      });
-    }
-
-    saveMemoryStore();
-    const { password_hash: _, ...safe } = newUser;
-    return safe;
+    const [result] = await pool.execute(
+      "INSERT INTO users (username, password_hash, first_name, surname, role, is_active) VALUES (?, ?, ?, ?, 'student', 1)",
+      [username.trim(), password_hash, first_name.trim(), surname.trim()]
+    );
+    const [rows] = await pool.execute(
+      "SELECT user_id, username, first_name, surname, role, is_active FROM users WHERE user_id = ? LIMIT 1",
+      [result.insertId]
+    );
+    return rows[0];
   },
 
   async getChaptersForUser(userId, role) {

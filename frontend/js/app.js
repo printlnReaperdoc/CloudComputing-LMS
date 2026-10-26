@@ -568,15 +568,8 @@ function renderAuthModalContent(startWithDemo = false) {
           <input type="text" id="regUsername" class="form-control" placeholder="jdelacruz" required>
         </div>
         <div class="form-group">
-          <label>Password (Min 6 chars) *</label>
+          <label>Password *</label>
           <input type="password" id="regPassword" class="form-control" placeholder="••••••••" required>
-        </div>
-        <div class="form-group">
-          <label>Role Selection *</label>
-          <select id="regRole" class="form-control">
-            <option value="student">Student (Sequential Unlocking & Quizzes)</option>
-            <option value="faculty">Faculty / Admin (Content Author & Master Gradebook)</option>
-          </select>
         </div>
         <div id="regError" class="auth-error-msg"></div>
         <button type="submit" class="btn btn-primary btn-block mt-3" id="btnSubmitRegister">Register Account</button>
@@ -589,12 +582,11 @@ function renderAuthModalContent(startWithDemo = false) {
       const surname = document.getElementById("regSurname").value.trim();
       const username = document.getElementById("regUsername").value.trim();
       const password = document.getElementById("regPassword").value;
-      const role = document.getElementById("regRole").value;
       const errEl = document.getElementById("regError");
       errEl.innerText = "";
 
       try {
-        const res = await api.register({ first_name, surname, username, password, role });
+        const res = await api.register({ first_name, surname, username, password });
         if (res.success && res.token) {
           api.setToken(res.token);
           state.setUser(res.user);

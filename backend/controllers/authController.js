@@ -36,7 +36,7 @@ exports.login = async (req, res) => {
 
 exports.register = async (req, res) => {
   try {
-    const { username, password, first_name, surname, role } = req.body;
+    const { username, password, first_name, surname } = req.body;
 
     if (!username || !password || !first_name || !surname) {
       return res.status(400).json({
@@ -49,31 +49,25 @@ exports.register = async (req, res) => {
       return res.status(400).json({ success: false, message: "Username must be at least 3 characters." });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ success: false, message: "Password must be at least 6 characters." });
-    }
-
     const existing = await db.findUserByUsername(username);
     if (existing) {
       return res.status(409).json({ success: false, message: "Username already exists. Please choose another." });
     }
 
-    const userRole = role === "faculty" ? "faculty" : "student";
     const password_hash = hashPassword(password);
 
     const newUser = await db.createUser({
       username,
       password_hash,
       first_name,
-      surname,
-      role: userRole
+      surname
     });
 
     const token = generateToken(newUser);
 
     res.status(201).json({
       success: true,
-      message: `Registration successful! Account created as ${userRole.toUpperCase()}.`,
+      message: "Registration successful! Account created as STUDENT.",
       token,
       user: newUser
     });

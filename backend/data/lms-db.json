@@ -49,6 +49,36 @@
       "role": "student",
       "is_active": 1,
       "created_at": "2026-10-26T01:28:08.610Z"
+    },
+    {
+      "user_id": 6,
+      "username": "vic.sotto",
+      "password_hash": "772a68d1831102a7fcb551d9b9313f2e:3bc4ea827eea2862a1d55509d5896738293e9a7e15eb52c5b2a9f743b846182943cfafdc92dd49980b72f578d07a44eab78150d79d520e69a3b758a5878855f7",
+      "first_name": "Vic",
+      "surname": "Sotto",
+      "role": "student",
+      "is_active": 1,
+      "created_at": "2026-10-26T06:47:54.674Z"
+    },
+    {
+      "user_id": 7,
+      "username": "vic.sotto",
+      "password_hash": "ec04ae9d2d69d6d43ca301a51ded69ec:1fcbc96e41e5d3244dcdd1b2fdb8c742363e8b3b830e27527266d5292ed7fe84d5749b08ec8d4ef3a47c6d3053ea65153843a9ff72746fa86dcc380e6f304c3f",
+      "first_name": "Vic",
+      "surname": "Sotto",
+      "role": "student",
+      "is_active": 1,
+      "created_at": "2026-10-26T06:51:39.600Z"
+    },
+    {
+      "user_id": 8,
+      "username": "vic.sotto",
+      "password_hash": "0a4130878ede1ca15a9e3367e2a7d2aa:bb3334704e2f51d0f368e6f6cca7a7d32c09fcb7b426a882b7054c6910a4bfe8d856c6136ab0f2a0e0a3ef0d9c7ed70a30a724c175587b74ecc54e067243de69",
+      "first_name": "Vic",
+      "surname": "Sotto",
+      "role": "student",
+      "is_active": 1,
+      "created_at": "2026-10-26T06:54:14.650Z"
     }
   ],
   "course": {
@@ -4694,6 +4724,36 @@
       "is_completed": 0,
       "highest_score": 50,
       "unlocked_at": "2026-10-26T01:38:21.964Z",
+      "completed_at": null
+    },
+    {
+      "progress_id": 20,
+      "student_id": 6,
+      "chapter_id": 1,
+      "is_unlocked": 1,
+      "is_completed": 0,
+      "highest_score": 0,
+      "unlocked_at": "2026-10-26T06:47:54.674Z",
+      "completed_at": null
+    },
+    {
+      "progress_id": 21,
+      "student_id": 7,
+      "chapter_id": 1,
+      "is_unlocked": 1,
+      "is_completed": 0,
+      "highest_score": 0,
+      "unlocked_at": "2026-10-26T06:51:39.600Z",
+      "completed_at": null
+    },
+    {
+      "progress_id": 22,
+      "student_id": 8,
+      "chapter_id": 1,
+      "is_unlocked": 1,
+      "is_completed": 0,
+      "highest_score": 0,
+      "unlocked_at": "2026-10-26T06:54:14.650Z",
       "completed_at": null
     }
   ],
