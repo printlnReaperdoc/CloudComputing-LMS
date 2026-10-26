@@ -33,7 +33,7 @@ export async function renderTopicGradebook(container) {
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
               Export PDF
             </button>
-            <a href="${api.getTopicCSVUrl(chapter.chapter_id, topicSortBy, topicOrder)}" download class="btn btn-primary btn-sm" id="btnExportCsv">
+            <button class="btn btn-primary btn-sm" id="btnExportCsv">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
               Download Spreadsheet (.CSV)
             </a>
@@ -138,6 +138,24 @@ export async function renderTopicGradebook(container) {
     document.getElementById("btnPdfTopic")?.addEventListener("click", () => {
       window.print();
     });
+
+    document.getElementById("btnExportCsv")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const blob = await api.downloadTopicCSV(chapter.chapter_id, topicSortBy, topicOrder);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `ITEP413T_Ch${chapter.chapter_number}_Gradebook.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
   } catch (err) {
     container.innerHTML = `<div class="alert-error">Failed to load topic gradebook: ${err.message}</div>`;
   }
@@ -203,7 +221,7 @@ export async function renderMasterGradebook(container) {
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
               Export PDF
             </button>
-            <a href="${api.getMasterCSVUrl()}" download class="btn btn-primary btn-sm">
+            <button class="btn btn-primary btn-sm" id="btnExportMasterCsv">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
               Download Master (.CSV)
             </a>
@@ -270,12 +288,47 @@ export async function renderMasterGradebook(container) {
       </div>
     `;
 
-    document.getElementById("btnPrintMaster")?.addEventListener("click", () => {
-      window.print();
+    const downloadMasterPdf = async (button) => {
+      button.disabled = true;
+      try {
+        const blob = await api.downloadMasterPDF();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "ITEP413T_Master_Gradebook.pdf";
+        link.click();
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        button.disabled = false;
+      }
+    };
+
+    document.getElementById("btnPrintMaster")?.addEventListener("click", (event) => {
+      downloadMasterPdf(event.currentTarget);
     });
 
-    document.getElementById("btnPdfMaster")?.addEventListener("click", () => {
-      window.print();
+    document.getElementById("btnPdfMaster")?.addEventListener("click", async (event) => {
+      await downloadMasterPdf(event.currentTarget);
+    });
+
+    document.getElementById("btnExportMasterCsv")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const blob = await api.downloadMasterCSV();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "ITEP413T_Master_Gradebook.csv";
+        link.click();
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        button.disabled = false;
+      }
     });
   } catch (err) {
     container.innerHTML = `<div class="alert-error">Failed to load Master Gradebook: ${err.message}</div>`;
@@ -291,4 +344,3 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
-

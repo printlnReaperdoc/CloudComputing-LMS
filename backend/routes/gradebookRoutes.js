@@ -8,6 +8,7 @@ router.get("/topic/:chapterId/export", authenticate, requireFaculty, gradebookCo
 
 router.get("/master", authenticate, requireFaculty, gradebookController.getMasterGradebook);
 router.get("/master/export", authenticate, requireFaculty, gradebookController.exportMasterCSV);
+router.get("/master/export.pdf", authenticate, requireFaculty, gradebookController.exportMasterPDF);
 
 router.get("/report", authenticate, requireAuth, gradebookController.getStudentReport);
 router.get("/report/:studentId", authenticate, requireAuth, gradebookController.getStudentReport);

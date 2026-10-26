@@ -22,9 +22,10 @@ npm start
 The server will initialize the database, seed all curriculum content and demo users, and serve the web application at:
 👉 **`http://localhost:3000`**
 
-### 2. Dual Database Architecture
-- **MySQL Mode:** Automatically connects to local MySQL (e.g., XAMPP, MariaDB, or Docker) using `.env` settings (`DB_HOST=localhost`, `DB_NAME=cloudcomputinglms`, `DB_USER=root`).
-- **Standalone Persistent Mode:** If MySQL is offline or undergoing maintenance, the LMS automatically operates using a high-fidelity persistent JSON store (`backend/data/lms-db.json`) ensuring **zero downtime and immediate out-of-the-box functionality**.
+### 2. MySQL Database
+- The LMS uses MariaDB/MySQL exclusively using `.env` settings (`DB_HOST=localhost`, `DB_NAME=cloudcomputinglms`, `DB_USER=root`).
+- The backend automatically restarts when a loaded backend source file changes because `npm start` runs Node.js watch mode.
+- If the database is not available, the server reports the connection error instead of falling back to a JSON store.
 - **Direct SQL Import:** For manual database setup, use the provided schema and seeder:
   - `backend/database OCT 25.sql` (Database & table schemas + views)
   - `backend/seed_data.sql` (Complete curriculum, users, and 240 questions in MySQL format)
@@ -122,4 +123,3 @@ The system includes pre-configured accounts with realistic progress for testing:
 - **Frontend:** Vanilla ES6+ Modules, HTML5, CSS3 Custom Properties (No heavy frontend framework dependencies)
 - **Typography:** Inter, JetBrains Mono
 - **Print & PDF:** Dedicated `@media print` print-optimized stylesheets
-

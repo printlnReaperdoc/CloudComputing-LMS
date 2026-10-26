@@ -164,6 +164,31 @@ export const api = {
 
   getMasterCSVUrl() {
     return `/api/gradebook/master/export`;
+  },
+
+  async downloadFile(endpoint, fallbackMessage) {
+    const response = await fetch(endpoint, {
+      headers: { Authorization: `Bearer ${this.getToken()}` }
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.message || data.error || fallbackMessage);
+    }
+    return response.blob();
+  },
+
+  downloadTopicCSV(chapterId, sortBy = "surname", order = "asc") {
+    return this.downloadFile(
+      `/api/gradebook/topic/${chapterId}/export?sortBy=${sortBy}&order=${order}`,
+      "Failed to export topic CSV."
+    );
+  },
+
+  downloadMasterCSV() {
+    return this.downloadFile("/api/gradebook/master/export", "Failed to export master CSV.");
+  },
+
+  async downloadMasterPDF() {
+    return this.downloadFile("/api/gradebook/master/export.pdf", "Failed to export master PDF.");
   }
 };
-
