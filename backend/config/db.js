@@ -34,6 +34,23 @@ function requirePool() {
   return pool;
 }
 
+function isDatabaseMutation(sql) {
+  return /^\s*(INSERT|UPDATE|DELETE|REPLACE|ALTER|CREATE|DROP|TRUNCATE)\b/i.test(sql);
+}
+
+async function executeQuery(executor, sql, params = []) {
+  const result = await executor.execute(sql, params);
+  if (isDatabaseMutation(sql)) {
+    const metadata = result[0];
+    console.log("[DB UPDATE]", {
+      statement: sql.replace(/\s+/g, " ").trim(),
+      affectedRows: metadata.affectedRows,
+      insertId: metadata.insertId || null
+    });
+  }
+  return result;
+}
+
 function chapterWithJson(chapter) {
   if (!chapter) return null;
   return {
@@ -54,19 +71,19 @@ const db = {
   },
 
   async getCourse() {
-    const [rows] = await requirePool().execute("SELECT * FROM courses ORDER BY course_id LIMIT 1");
+    const [rows] = await executeQuery(requirePool(), "SELECT * FROM courses ORDER BY course_id LIMIT 1");
     return rows[0] || null;
   },
 
   async getAllUsers() {
-    const [rows] = await requirePool().execute(
+    const [rows] = await executeQuery(requirePool(),
       "SELECT user_id, username, first_name, surname, role, is_active, created_at FROM users"
     );
     return rows;
   },
 
   async findUserByUsername(username) {
-    const [rows] = await requirePool().execute(
+    const [rows] = await executeQuery(requirePool(),
       "SELECT user_id, username, password_hash, first_name, surname, role, is_active FROM users WHERE username = ? AND is_active = 1 LIMIT 1",
       [username.trim()]
     );
@@ -74,7 +91,7 @@ const db = {
   },
 
   async findUserById(id) {
-    const [rows] = await requirePool().execute(
+    const [rows] = await executeQuery(requirePool(),
       "SELECT user_id, username, first_name, surname, role, is_active FROM users WHERE user_id = ? AND is_active = 1 LIMIT 1",
       [id]
     );
@@ -85,7 +102,7 @@ const db = {
     const existing = await this.findUserByUsername(username);
     if (existing) throw new Error("Username already taken.");
     const database = requirePool();
-    const [result] = await database.execute(
+    const [result] = await executeQuery(database,
       "INSERT INTO users (username, password_hash, first_name, surname, role, is_active) VALUES (?, ?, ?, ?, 'student', 1)",
       [username.trim(), password_hash, first_name.trim(), surname.trim()]
     );
@@ -93,7 +110,7 @@ const db = {
   },
 
   async getChaptersForUser(userId, role) {
-    const [chapters] = await requirePool().execute(
+    const [chapters] = await executeQuery(requirePool(),
       `SELECT ch.chapter_id, ch.chapter_number, ch.module_title, ch.chapter_title,
               CASE WHEN ? = 'faculty' OR ch.chapter_number = 1 OR COALESCE(sp.is_unlocked, 0) = 1
                    THEN 1 ELSE 0 END AS is_unlocked,
@@ -109,7 +126,7 @@ const db = {
   },
 
   async getChapterById(chapterId, userId, role) {
-    const [rows] = await requirePool().execute(
+    const [rows] = await executeQuery(requirePool(),
       `SELECT ch.*, CASE WHEN ? = 'faculty' OR ch.chapter_number = 1 OR COALESCE(sp.is_unlocked, 0) = 1
                     THEN 1 ELSE 0 END AS is_unlocked,
               COALESCE(sp.is_completed, 0) AS is_completed,
@@ -140,7 +157,7 @@ const db = {
     }
     if (!fields.length) return this.getChapterById(chapterId, null, "faculty");
     values.push(chapterId);
-    const [result] = await requirePool().execute(
+    const [result] = await executeQuery(requirePool(),
       `UPDATE chapters SET ${fields.join(", ")} WHERE chapter_id = ?`,
       values
     );
@@ -149,7 +166,7 @@ const db = {
   },
 
   async getQuizByChapterId(chapterId) {
-    const [rows] = await requirePool().execute(
+    const [rows] = await executeQuery(requirePool(),
       "SELECT * FROM quizzes WHERE chapter_id = ? LIMIT 1",
       [chapterId]
     );
@@ -157,7 +174,7 @@ const db = {
   },
 
   async getQuizQuestions(quizId, includeAnswers = false) {
-    const [rows] = await requirePool().execute(
+    const [rows] = await executeQuery(requirePool(),
       "SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY question_id",
       [quizId]
     );
@@ -172,18 +189,18 @@ const db = {
   },
 
   async addQuizQuestion(quizId, data) {
-    const [result] = await requirePool().execute(
+    const [result] = await executeQuery(requirePool(),
       `INSERT INTO quiz_questions
        (quiz_id, question_text, option_a, option_b, option_c, option_d, correct_option, explanation)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [quizId, data.question_text, data.option_a, data.option_b, data.option_c, data.option_d,
         data.correct_option.toUpperCase(), data.explanation || ""]
     );
-    await requirePool().execute(
+    await executeQuery(requirePool(),
       "UPDATE quizzes SET total_questions = (SELECT COUNT(*) FROM quiz_questions WHERE quiz_id = ?) WHERE quiz_id = ?",
       [quizId, quizId]
     );
-    const [rows] = await requirePool().execute("SELECT * FROM quiz_questions WHERE question_id = ?", [result.insertId]);
+    const [rows] = await executeQuery(requirePool(), "SELECT * FROM quiz_questions WHERE question_id = ?", [result.insertId]);
     return questionWithJson(rows[0]);
   },
 
@@ -202,17 +219,17 @@ const db = {
     }
     if (!fields.length) throw new Error("No question fields to update.");
     values.push(questionId);
-    const [result] = await requirePool().execute(
+    const [result] = await executeQuery(requirePool(),
       `UPDATE quiz_questions SET ${fields.join(", ")} WHERE question_id = ?`,
       values
     );
     if (!result.affectedRows) throw new Error("Question not found");
-    const [rows] = await requirePool().execute("SELECT * FROM quiz_questions WHERE question_id = ?", [questionId]);
+    const [rows] = await executeQuery(requirePool(), "SELECT * FROM quiz_questions WHERE question_id = ?", [questionId]);
     return questionWithJson(rows[0]);
   },
 
   async deleteQuizQuestion(questionId) {
-    const [result] = await requirePool().execute("DELETE FROM quiz_questions WHERE question_id = ?", [questionId]);
+    const [result] = await executeQuery(requirePool(), "DELETE FROM quiz_questions WHERE question_id = ?", [questionId]);
     if (!result.affectedRows) throw new Error("Question not found");
     return true;
   },
@@ -225,9 +242,9 @@ const db = {
     const connection = await requirePool().getConnection();
     try {
       await connection.beginTransaction();
-      await connection.execute("DELETE FROM quiz_questions WHERE quiz_id = ?", [quiz.quiz_id]);
+      await executeQuery(connection, "DELETE FROM quiz_questions WHERE quiz_id = ?", [quiz.quiz_id]);
       for (const question of chapter.quiz.questions) {
-        await connection.execute(
+        await executeQuery(connection,
           `INSERT INTO quiz_questions
            (quiz_id, question_text, option_a, option_b, option_c, option_d, correct_option, explanation)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -235,7 +252,7 @@ const db = {
             question.option_d, question.correct_option, question.explanation || ""]
         );
       }
-      await connection.execute("UPDATE quizzes SET total_questions = ? WHERE quiz_id = ?",
+      await executeQuery(connection, "UPDATE quizzes SET total_questions = ? WHERE quiz_id = ?",
         [chapter.quiz.questions.length, quiz.quiz_id]);
       await connection.commit();
     } catch (error) {
@@ -249,7 +266,7 @@ const db = {
 
   async submitQuizAttempt({ quizId, studentId, answers, timeTakenSeconds }) {
     const database = requirePool();
-    const [questions] = await database.execute(
+    const [questions] = await executeQuery(database,
       "SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY question_id", [quizId]
     );
     if (!questions.length) throw new Error("No questions in this quiz.");
@@ -273,7 +290,7 @@ const db = {
     const connection = await database.getConnection();
     try {
       await connection.beginTransaction();
-      const [attemptResult] = await connection.execute(
+      const [attemptResult] = await executeQuery(connection,
         `INSERT INTO quiz_attempts
          (quiz_id, student_id, score, total_questions, percentage, passed, time_taken_seconds)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -281,16 +298,16 @@ const db = {
       );
       for (const answer of answerAudit) {
         if (["A", "B", "C", "D"].includes(answer.selected_option)) {
-          await connection.execute(
+          await executeQuery(connection,
             `INSERT INTO quiz_attempt_answers (attempt_id, question_id, selected_option, is_correct)
              VALUES (?, ?, ?, ?)`,
             [attemptResult.insertId, answer.question_id, answer.selected_option, answer.is_correct]
           );
         }
       }
-      const [quizRows] = await connection.execute("SELECT chapter_id FROM quizzes WHERE quiz_id = ?", [quizId]);
+      const [quizRows] = await executeQuery(connection, "SELECT chapter_id FROM quizzes WHERE quiz_id = ?", [quizId]);
       const chapterId = quizRows[0].chapter_id;
-      await connection.execute(
+      await executeQuery(connection,
         `INSERT INTO student_progress
          (student_id, chapter_id, is_unlocked, is_completed, highest_score, unlocked_at, completed_at)
          VALUES (?, ?, 1, ?, ?, CURRENT_TIMESTAMP, ?)
@@ -301,7 +318,7 @@ const db = {
         [studentId, chapterId, passed, percentage, passed ? new Date() : null]
       );
       if (passed) {
-        await connection.execute(
+        await executeQuery(connection,
           `INSERT INTO student_progress
            (student_id, chapter_id, is_unlocked, is_completed, highest_score, unlocked_at)
            SELECT ?, next_ch.chapter_id, 1, 0, 0, CURRENT_TIMESTAMP
@@ -314,8 +331,8 @@ const db = {
         );
       }
       await connection.commit();
-      const [attemptRows] = await database.execute("SELECT * FROM quiz_attempts WHERE attempt_id = ?", [attemptResult.insertId]);
-      const [nextRows] = await database.execute(
+      const [attemptRows] = await executeQuery(database, "SELECT * FROM quiz_attempts WHERE attempt_id = ?", [attemptResult.insertId]);
+      const [nextRows] = await executeQuery(database,
         "SELECT chapter_id FROM student_progress WHERE student_id = ? AND chapter_id = ? + 1 AND is_unlocked = 1",
         [studentId, chapterId]
       );
@@ -338,7 +355,7 @@ const db = {
   },
 
   async getTopicGradebook(chapterId, sortBy = "surname", order = "asc") {
-    const [rows] = await requirePool().execute(
+    const [rows] = await executeQuery(requirePool(),
       `SELECT u.user_id AS student_id, u.surname, u.first_name,
               CONCAT(u.surname, ', ', u.first_name) AS student_name,
               COALESCE(MAX(qa.score), 0) AS highest_score,
@@ -358,11 +375,11 @@ const db = {
   },
 
   async getMasterGradebook() {
-    const [chapters] = await requirePool().execute("SELECT chapter_number, chapter_title FROM chapters ORDER BY chapter_number");
-    const [students] = await requirePool().execute(
+    const [chapters] = await executeQuery(requirePool(), "SELECT chapter_number, chapter_title FROM chapters ORDER BY chapter_number");
+    const [students] = await executeQuery(requirePool(),
       "SELECT user_id, surname, first_name, username FROM users WHERE role = 'student' ORDER BY surname"
     );
-    const [attempts] = await requirePool().execute(
+    const [attempts] = await executeQuery(requirePool(),
       `SELECT qa.student_id, ch.chapter_number, qa.score, qa.percentage, qa.passed
        FROM quiz_attempts qa JOIN quizzes q ON q.quiz_id = qa.quiz_id
        JOIN chapters ch ON ch.chapter_id = q.chapter_id`
@@ -402,14 +419,14 @@ const db = {
   },
 
   async getStudentIndividualReport(studentId) {
-    const [students] = await requirePool().execute(
+    const [students] = await executeQuery(requirePool(),
       "SELECT user_id, username, first_name, surname FROM users WHERE user_id = ? AND role = 'student'",
       [studentId]
     );
     if (!students[0]) throw new Error("Student not found");
-    const [chapters] = await requirePool().execute("SELECT * FROM chapters ORDER BY chapter_number");
-    const [progress] = await requirePool().execute("SELECT * FROM student_progress WHERE student_id = ?", [studentId]);
-    const [attempts] = await requirePool().execute(
+    const [chapters] = await executeQuery(requirePool(), "SELECT * FROM chapters ORDER BY chapter_number");
+    const [progress] = await executeQuery(requirePool(), "SELECT * FROM student_progress WHERE student_id = ?", [studentId]);
+    const [attempts] = await executeQuery(requirePool(),
       `SELECT qa.*, q.chapter_id FROM quiz_attempts qa
        JOIN quizzes q ON q.quiz_id = qa.quiz_id WHERE qa.student_id = ?`,
       [studentId]
